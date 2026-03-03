@@ -3,8 +3,8 @@ import type { Metadata } from 'next'
 import { AuthProvider } from '@/components/AuthContext'
 
 export const metadata: Metadata = {
-  title: 'Federated AI Platform',
-  description: 'Distributed Federated Learning Dashboard',
+  title: 'ASTRA — Federated AI Platform',
+  description: 'Enterprise federated learning orchestration and monitoring platform',
 }
 
 export default function RootLayout({

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthContext';
-import { Layers, Clock, RefreshCw, Filter } from 'lucide-react';
+import { Clock, RefreshCw } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,8 +22,8 @@ export default function LogsPage() {
 
   const fetchLogs = async () => {
     try {
-      const url = filter 
-        ? `${API_URL}/api/logs?event_type=${filter}` 
+      const url = filter
+        ? `${API_URL}/api/logs?event_type=${filter}`
         : `${API_URL}/api/logs`;
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -45,26 +45,26 @@ export default function LogsPage() {
   }, [token, filter]);
 
   const formatTime = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleTimeString();
+    return new Date(timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
   const getTypeColor = (type: string) => {
     switch (type) {
-      case 'training_started': return 'text-green-400';
+      case 'training_started': return 'text-emerald-400';
       case 'aggregation': return 'text-blue-400';
-      case 'client_joined': return 'text-purple-400';
-      case 'client_rejected': return 'text-red-400';
-      default: return 'text-gray-400';
+      case 'client_joined': return 'text-violet-400';
+      case 'client_rejected': return 'text-rose-400';
+      default: return 'text-slate-400';
     }
   };
 
-  const getTypeBg = (type: string) => {
+  const getTypeDot = (type: string) => {
     switch (type) {
-      case 'training_started': return 'bg-green-900/20 border-green-800';
-      case 'aggregation': return 'bg-blue-900/20 border-blue-800';
-      case 'client_joined': return 'bg-purple-900/20 border-purple-800';
-      case 'client_rejected': return 'bg-red-900/20 border-red-800';
-      default: return 'bg-gray-900/20 border-gray-800';
+      case 'training_started': return 'bg-emerald-500';
+      case 'aggregation': return 'bg-blue-500';
+      case 'client_joined': return 'bg-violet-500';
+      case 'client_rejected': return 'bg-rose-500';
+      default: return 'bg-slate-500';
     }
   };
 
@@ -72,67 +72,71 @@ export default function LogsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold text-white">Event Logs</h1>
-          <p className="text-gray-400">Server events and training history</p>
+          <p className="text-slate-400 text-sm mt-1">Server events and training history</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2">
           <select
             value={filter || ''}
             onChange={(e) => setFilter(e.target.value || null)}
-            className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white"
+            className="input-field !w-auto !py-2 text-sm"
           >
             <option value="">All Events</option>
             {eventTypes.map(type => (
-              <option key={type} value={type}>{type.replace('_', ' ')}</option>
+              <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>
             ))}
           </select>
-          <button 
-            onClick={fetchLogs} 
-            className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition"
+          <button
+            onClick={fetchLogs}
+            className="p-2.5 rounded-xl text-slate-400 hover:text-white transition-all"
+            style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(51, 65, 85, 0.5)' }}
           >
-            <RefreshCw size={18} className="text-gray-400" />
+            <RefreshCw size={16} />
           </button>
         </div>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : logs.length === 0 ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <Clock size={48} className="mx-auto text-gray-600 mb-4" />
-          <h3 className="text-white font-semibold mb-2">No logs yet</h3>
-          <p className="text-gray-400">Events will appear here when training starts</p>
+        <div className="glass-card p-12 text-center animate-fade-in">
+          <Clock size={40} className="mx-auto text-slate-700 mb-3" />
+          <h3 className="text-white font-semibold mb-1">No logs yet</h3>
+          <p className="text-slate-500 text-sm">Events will appear here when training starts</p>
         </div>
       ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="max-h-[600px] overflow-y-auto">
+        <div className="glass-card overflow-hidden animate-fade-in">
+          <div className="max-h-[650px] overflow-y-auto">
             {logs.map((log, idx) => (
-              <div 
-                key={idx} 
-                className={`p-4 border-b border-gray-800 ${getTypeBg(log.type)}`}
+              <div
+                key={idx}
+                className="p-4 border-b transition-colors hover:bg-white/[0.02]"
+                style={{ borderColor: 'rgba(51,65,85,0.3)' }}
               >
                 <div className="flex items-start gap-4">
-                  <div className="text-gray-500 text-sm font-mono min-w-[80px]">
+                  <div className="text-slate-600 text-xs font-mono min-w-[72px] mt-0.5">
                     {formatTime(log.timestamp)}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-medium uppercase ${getTypeColor(log.type)}`}>
-                        {log.type.replace('_', ' ')}
+                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${getTypeDot(log.type)}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className={`text-[11px] font-semibold uppercase tracking-wider ${getTypeColor(log.type)}`}>
+                        {log.type.replace(/_/g, ' ')}
                       </span>
                       {log.group_id && (
-                        <span className="text-xs text-gray-500">
+                        <span className="text-[10px] text-slate-600 font-mono px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(30,41,59,0.5)' }}>
                           {log.group_id}
                         </span>
                       )}
                     </div>
-                    <p className="text-white">{log.message}</p>
+                    <p className="text-slate-300 text-sm">{log.message}</p>
                     {log.details && Object.keys(log.details).length > 0 && (
-                      <pre className="text-gray-500 text-xs mt-1 font-mono">
+                      <pre className="text-slate-600 text-[11px] mt-1.5 font-mono leading-relaxed">
                         {JSON.stringify(log.details, null, 2)}
                       </pre>
                     )}

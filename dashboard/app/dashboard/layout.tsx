@@ -1,31 +1,28 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { 
-  LayoutDashboard, Layers, Plus, LogOut, 
-  Wifi, Bell, ScrollText
+import {
+  LayoutDashboard, Layers, Plus, LogOut,
+  Bell, ScrollText, ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/components/AuthContext';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 const adminNav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/groups', label: 'Groups', icon: Layers },
   { href: '/dashboard/create', label: 'Create Group', icon: Plus },
-  { href: '/dashboard/logs', label: 'Logs', icon: ScrollText },
-];
-
-const observerNav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/dashboard/groups', label: 'Groups', icon: Layers },
-  { href: '/dashboard/logs', label: 'Logs', icon: ScrollText },
+  { href: '/dashboard/logs', label: 'Event Logs', icon: ScrollText },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, token, logout, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!isLoading && !token) {
@@ -33,83 +30,121 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [token, isLoading, router]);
 
+  useEffect(() => {
+    if (!token) return;
+    const fetchUnread = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/notifications/unread-count`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.count || 0);
+        }
+      } catch { }
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => clearInterval(interval);
+  }, [token]);
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-slate-500 text-sm">Loading...</span>
+        </div>
       </div>
     );
   }
 
-  if (!token || !user) {
-    return null;
-  }
+  if (!token || !user) return null;
 
-  const navItems = user.role === 'admin' ? adminNav : observerNav;
+  const initials = (user.name || user.username || 'U').slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-gray-950 flex">
-      <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="p-4 border-b border-gray-800">
+    <div className="min-h-screen flex" style={{ background: 'var(--bg-primary)' }}>
+      {/* Sidebar */}
+      <aside className="w-[260px] glass-sidebar flex flex-col shrink-0">
+        {/* Logo */}
+        <div className="p-5 pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
-              <Layers size={20} className="text-white" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+              <Layers size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="text-white font-semibold">Federated AI</h1>
-              <p className="text-gray-500 text-xs">Platform</p>
+              <h1 className="text-white font-bold text-[15px] tracking-tight">ASTRA</h1>
+              <p className="text-slate-500 text-[11px] font-medium">Admin Console</p>
             </div>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href;
+        {/* Nav */}
+        <nav className="flex-1 px-3 space-y-0.5">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-4 mb-2">Navigation</p>
+          {adminNav.map((item) => {
+            const isActive = pathname === item.href ||
+              (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition ${
-                  isActive 
-                    ? 'bg-indigo-600 text-white' 
-                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                }`}
+                className={`nav-item ${isActive ? 'active' : ''}`}
               >
-                <item.icon size={18} />
+                <item.icon size={17} />
                 <span>{item.label}</span>
+                {isActive && <ChevronRight size={14} className="ml-auto opacity-60" />}
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white text-sm font-medium">{user.name}</p>
-              <p className="text-gray-500 text-xs capitalize">{user.role}</p>
+        {/* User section */}
+        <div className="p-4 mx-3 mb-3 rounded-xl" style={{ background: 'rgba(30, 41, 59, 0.4)' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-brand-300"
+              style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15))' }}>
+              {initials}
             </div>
-            <button onClick={logout} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition">
-              <LogOut size={18} />
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium truncate">{user.name || user.username}</p>
+              <p className="text-slate-500 text-[11px] capitalize">{user.role}</p>
+            </div>
+            <button
+              onClick={logout}
+              className="p-2 text-slate-500 hover:text-white hover:bg-slate-800/50 rounded-lg transition"
+              title="Sign out"
+            >
+              <LogOut size={16} />
             </button>
           </div>
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col">
-        <header className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6">
-          <div className="flex items-center gap-4">
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="h-14 glass-header flex items-center justify-between px-6 shrink-0">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Wifi size={16} className="text-green-500" />
-              <span className="text-gray-400 text-sm">Connected</span>
+              <div className="w-2 h-2 bg-emerald-500 rounded-full pulse-dot green" />
+              <span className="text-slate-500 text-xs font-medium">System Online</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <button className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition">
-              <Bell size={18} />
+          <div className="flex items-center gap-2">
+            <button className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-lg transition">
+              <Bell size={17} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold rounded-full px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
           </div>
         </header>
 
+        {/* Content */}
         <main className="flex-1 p-6 overflow-auto">
           {children}
         </main>

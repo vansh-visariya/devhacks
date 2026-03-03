@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthContext';
-import { Layers, Users, Activity, Shield, Zap, TrendingUp, Plus } from 'lucide-react';
+import { Layers, Users, Activity, Shield, Zap, TrendingUp, Plus, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -22,7 +22,7 @@ interface SystemMetrics {
 }
 
 export default function DashboardPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
 
   useEffect(() => {
@@ -44,75 +44,95 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [token]);
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   const formatPercent = (value?: number) => `${((value || 0) * 100).toFixed(1)}%`;
   const formatLoss = (value?: number) => (value ?? 0).toFixed(4);
-  const formatVersion = (value?: number) => `v${value || 0}`;
 
-  const statCards: { label: string; value: string | number; icon: any; color: string }[] = [
-    { label: 'Total Groups', value: metrics?.total_groups || 0, icon: Layers, color: 'indigo' },
-    { label: 'Active Groups', value: metrics?.active_groups || 0, icon: Activity, color: 'green' },
-    { label: 'Total Participants', value: metrics?.total_participants || 0, icon: Users, color: 'blue' },
-    { label: 'Active Participants', value: metrics?.active_participants || 0, icon: Zap, color: 'yellow' },
-    { label: 'DP Enabled', value: metrics?.dp_enabled_groups || 0, icon: Shield, color: 'purple' },
-    { label: 'Total Aggregations', value: metrics?.total_aggregations || 0, icon: TrendingUp, color: 'pink' },
-    { label: 'Latest Accuracy', value: formatPercent(metrics?.latest_accuracy), icon: TrendingUp, color: 'green' },
-    { label: 'Latest Loss', value: formatLoss(metrics?.latest_loss), icon: Activity, color: 'red' },
-    { label: 'Latest Round', value: formatVersion(metrics?.latest_version), icon: Layers, color: 'indigo' },
+  const statCards = [
+    { label: 'Total Groups', value: metrics?.total_groups || 0, icon: Layers, accent: 'accent-indigo', iconBg: 'rgba(99,102,241,0.15)', iconColor: 'text-indigo-400' },
+    { label: 'Active Groups', value: metrics?.active_groups || 0, icon: Activity, accent: 'accent-emerald', iconBg: 'rgba(16,185,129,0.15)', iconColor: 'text-emerald-400' },
+    { label: 'Total Participants', value: metrics?.total_participants || 0, icon: Users, accent: 'accent-blue', iconBg: 'rgba(59,130,246,0.15)', iconColor: 'text-blue-400' },
+    { label: 'Active Participants', value: metrics?.active_participants || 0, icon: Zap, accent: 'accent-amber', iconBg: 'rgba(245,158,11,0.15)', iconColor: 'text-amber-400' },
+    { label: 'DP Enabled', value: metrics?.dp_enabled_groups || 0, icon: Shield, accent: 'accent-violet', iconBg: 'rgba(139,92,246,0.15)', iconColor: 'text-violet-400' },
+    { label: 'Total Rounds', value: metrics?.total_aggregations || 0, icon: TrendingUp, accent: 'accent-rose', iconBg: 'rgba(244,63,94,0.15)', iconColor: 'text-rose-400' },
   ];
 
-  const colorMap: Record<string, string> = {
-    indigo: 'bg-indigo-600',
-    green: 'bg-green-600',
-    blue: 'bg-blue-600',
-    yellow: 'bg-yellow-600',
-    purple: 'bg-purple-600',
-    pink: 'bg-pink-600',
-    red: 'bg-red-600',
-  };
+  const performanceCards = [
+    { label: 'Latest Accuracy', value: formatPercent(metrics?.latest_accuracy), sub: metrics?.latest_group_id ? `Group: ${metrics.latest_group_id}` : 'No data', color: 'emerald' },
+    { label: 'Latest Loss', value: formatLoss(metrics?.latest_loss), sub: `Round v${metrics?.latest_version || 0}`, color: 'blue' },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-gray-400">System overview</p>
+      {/* Header */}
+      <div className="animate-fade-in">
+        <h1 className="text-2xl font-bold text-white">{getGreeting()}, {user?.name || 'Admin'}</h1>
+        <p className="text-slate-400 text-sm mt-1">Here's your federated learning overview</p>
       </div>
 
+      {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((stat, idx) => (
-          <div key={idx} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-gray-400 text-sm">{stat.label}</span>
-              <div className={`w-8 h-8 rounded-lg ${colorMap[stat.color]} flex items-center justify-center`}>
-                <stat.icon size={16} className="text-white" />
+          <div key={idx} className={`stat-card ${stat.accent} p-5 animate-fade-in`} style={{ animationDelay: `${idx * 0.05}s`, opacity: 0 }}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">{stat.label}</span>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: stat.iconBg }}>
+                <stat.icon size={17} className={stat.iconColor} />
               </div>
             </div>
-            <p className="text-3xl font-bold text-white">{stat.value}</p>
+            <p className="text-3xl font-bold text-white tracking-tight">{stat.value}</p>
           </div>
         ))}
       </div>
 
+      {/* Performance Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link href="/dashboard/groups" className="bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-indigo-500 transition group">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-600/20 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 transition">
-              <Layers size={24} className="text-indigo-400" />
+        {performanceCards.map((card, idx) => (
+          <div key={idx} className="stat-card accent-emerald p-5 animate-fade-in" style={{ animationDelay: `${0.35 + idx * 0.05}s`, opacity: 0 }}>
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">{card.label}</span>
+            <p className="text-3xl font-bold text-white tracking-tight mt-3">{card.value}</p>
+            <p className="text-slate-500 text-xs mt-2">{card.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in" style={{ animationDelay: '0.45s', opacity: 0 }}>
+        <Link href="/dashboard/groups" className="glass-card p-5 group cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))' }}>
+                <Layers size={20} className="text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">Manage Groups</h3>
+                <p className="text-slate-500 text-xs mt-0.5">View and control federated groups</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-white font-semibold">Manage Groups</h3>
-              <p className="text-gray-400 text-sm">View and control federated groups</p>
-            </div>
+            <ArrowUpRight size={16} className="text-slate-600 group-hover:text-indigo-400 transition-colors" />
           </div>
         </Link>
 
-        <Link href="/dashboard/create" className="bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-green-500 transition group">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-green-600/20 rounded-xl flex items-center justify-center group-hover:bg-green-600 transition">
-              <Plus size={24} className="text-green-400" />
+        <Link href="/dashboard/create" className="glass-card p-5 group cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.1))' }}>
+                <Plus size={20} className="text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">Create New Group</h3>
+                <p className="text-slate-500 text-xs mt-0.5">Start a new federated learning experiment</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-white font-semibold">Create New Group</h3>
-              <p className="text-gray-400 text-sm">Start a new federated learning experiment</p>
-            </div>
+            <ArrowUpRight size={16} className="text-slate-600 group-hover:text-emerald-400 transition-colors" />
           </div>
         </Link>
       </div>
