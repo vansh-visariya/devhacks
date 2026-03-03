@@ -586,6 +586,10 @@ def main():
     # Authentication
     parser.add_argument('--token', type=str, default=None,
                         help='Authentication token')
+    parser.add_argument('--username', type=str, default=None,
+                        help='Username for auto-login (gets JWT token automatically)')
+    parser.add_argument('--password', type=str, default=None,
+                        help='Password for auto-login')
     
     # Training config
     parser.add_argument('--config', type=str, default='config.yaml',
@@ -596,6 +600,30 @@ def main():
                         help='Connection mode')
     
     args = parser.parse_args()
+    
+    # Auto-login if username/password provided
+    token = args.token
+    if not token and args.username and args.password:
+        import requests as req
+        try:
+            login_resp = req.post(
+                f"{args.server.rstrip('/')}/api/auth/login",
+                json={"username": args.username, "password": args.password}
+            )
+            if login_resp.status_code == 200:
+                login_data = login_resp.json()
+                token = login_data.get("token")
+                print(f"[AUTH] Logged in as {args.username} (token obtained)")
+            else:
+                print(f"[AUTH] Login failed: {login_resp.json().get('detail', 'unknown error')}")
+                sys.exit(1)
+        except Exception as e:
+            print(f"[AUTH] Login request failed: {e}")
+            sys.exit(1)
+    
+    if not token:
+        print("[WARN] No authentication token. Use --username/--password or --token.")
+        print("       WebSocket connection will likely fail (HTTP 403).")
     
     # Load config
     import yaml
@@ -617,7 +645,7 @@ def main():
         client.join_token = args.join_token
         client.data_modality = args.data_modality
         client.data_samples = args.data_samples
-        client.token = args.token
+        client.token = token
         
         # Run client
         asyncio.run(client.run())

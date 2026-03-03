@@ -1552,6 +1552,112 @@ async def list_clients():
     return {"clients": clients, "count": len(clients)}
 
 
+@app.get("/api/client/training-status")
+async def get_client_training_status(request: Request):
+    """Get training status for the authenticated client across all joined groups.
+    
+    Returns FL client entries matching the user's username, along with
+    their group's training state, metrics, and model info.
+    """
+    if not fl_server:
+        raise HTTPException(status_code=503, detail="Server not ready")
+    
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No authorization token")
+    
+    token = auth_header.replace("Bearer ", "")
+    
+    try:
+        from api.integration import get_platform_integration
+        platform = get_platform_integration()
+        payload = platform.verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token verification failed")
+    
+    username = payload.get("sub", "")
+    user_id = payload.get("user_id")
+    
+    # Find all FL clients belonging to this user (pattern: {username}_{group_id})
+    sessions = []
+    for group_id, group in fl_server.group_manager.groups.items():
+        for client_id, client_info in group.clients.items():
+            # Match by username prefix or by user_id in client_info
+            is_match = (
+                client_id.startswith(f"{username}_") or
+                client_info.get("user_id") == user_id or
+                client_info.get("username") == username
+            )
+            if is_match:
+                # Get the group's latest metrics
+                latest_metrics = {}
+                if group.metrics_history:
+                    last = group.metrics_history[-1]
+                    latest_metrics = {
+                        "global_accuracy": last.get("accuracy", 0),
+                        "global_loss": last.get("loss", 0),
+                        "global_version": last.get("version", 0),
+                    }
+                
+                sessions.append({
+                    "client_id": client_id,
+                    "group_id": group_id,
+                    "model_id": group.model_id,
+                    "group_status": group.status,
+                    "is_training": group.is_training,
+                    "local_accuracy": client_info.get("local_accuracy", 0),
+                    "local_loss": client_info.get("local_loss", 0),
+                    "trust_score": client_info.get("trust_score", 1.0),
+                    "updates_count": client_info.get("updates_count", 0),
+                    "last_update": client_info.get("last_update"),
+                    "status": client_info.get("status", "idle"),
+                    "joined_at": client_info.get("joined_at"),
+                    "model_version": group.model_version,
+                    "window_status": group.get_window_status(),
+                    **latest_metrics,
+                })
+    
+    # Also check which groups user has approved join requests for but hasn't activated yet
+    pending_activations = []
+    try:
+        from api.integration import get_platform_integration
+        platform = get_platform_integration()
+        # Get all groups and check join status
+        for group_id in fl_server.group_manager.groups:
+            already_joined = any(s["group_id"] == group_id for s in sessions)
+            if not already_joined:
+                try:
+                    status = platform.get_user_join_status(user_id, group_id)
+                    if status and status.get("status") == "approved":
+                        pending_activations.append({
+                            "group_id": group_id,
+                            "model_id": fl_server.group_manager.groups[group_id].model_id,
+                            "status": "approved_not_activated",
+                        })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    
+    # Check if any WebSocket client is connected for this user
+    connected_ws_clients = []
+    for client_id in fl_server.connection_manager.client_sockets:
+        if client_id.startswith(f"{username}_"):
+            connected_ws_clients.append(client_id)
+    
+    return {
+        "username": username,
+        "sessions": sessions,
+        "pending_activations": pending_activations,
+        "connected_clients": connected_ws_clients,
+        "has_active_training": any(s["is_training"] for s in sessions),
+    }
+
+
 @app.get("/api/logs")
 async def get_logs(limit: int = 100, event_type: str = None, group_id: str = None):
     """Get server event logs."""
@@ -1599,49 +1705,68 @@ async def websocket_endpoint(websocket: WebSocket):
                         'status': 'rejected',
                         'reason': 'group_not_found'
                     })
-                elif join_token != group.join_token:
-                    await websocket.send_json({
-                        'status': 'rejected',
-                        'reason': 'invalid_token'
-                    })
                 else:
-                    # Register client - be more lenient
-                    try:
-                        logger = logging.getLogger(__name__)
-                        logger.info(f"[REGISTER] Registering client {client_id} to group {group_id}")
-                        success = fl_server.group_manager.register_client(
-                            client_id=client_id,
-                            group_id=group_id,
-                            client_info={
-                                'has_gpu': capabilities.get('has_gpu', False),
-                                'device': capabilities.get('device', 'cpu'),
-                                'data_metadata': data_metadata,
-                                'connection': 'websocket'
-                            }
-                        )
-                        if success:
-                            group = fl_server.group_manager.groups[group_id]
-                            logger.info(f"[REGISTER] Client {client_id} registered. Group now has {len(group.clients)} clients: {list(group.clients.keys())}")
-                            # Register websocket for sending messages to client
-                            fl_server.connection_manager.register_client(client_id, websocket)
-                            await websocket.send_json({
-                                'status': 'registered',
-                                'client_id': client_id,
-                                'group_id': group_id,
-                                'model_id': group.model_id
-                            })
-                        else:
-                            await websocket.send_json({
-                                'status': 'rejected',
-                                'reason': 'registration_failed'
-                            })
-                    except Exception as e:
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Registration error: {e}")
+                    # Check if client is already registered in the group (activated via dashboard)
+                    already_registered = client_id in group.clients
+                    
+                    # Check if client has approved join request (activated via REST API)
+                    has_approved_join = False
+                    if not already_registered and not join_token and payload:
+                        try:
+                            from api.integration import get_platform_integration
+                            platform = get_platform_integration()
+                            user_id = payload.get("user_id")
+                            join_status = platform.get_user_join_status(user_id, group_id)
+                            if join_status and join_status.get("status") in ("approved", "joined"):
+                                has_approved_join = True
+                        except Exception:
+                            pass
+                    
+                    token_valid = (join_token and join_token == group.join_token)
+                    
+                    if not already_registered and not has_approved_join and not token_valid:
                         await websocket.send_json({
                             'status': 'rejected',
-                            'reason': f'registration_error: {str(e)}'
+                            'reason': 'invalid_token'
                         })
+                    else:
+                        # Register client - be more lenient
+                        try:
+                            logger = logging.getLogger(__name__)
+                            logger.info(f"[REGISTER] Registering client {client_id} to group {group_id}")
+                            success = fl_server.group_manager.register_client(
+                                client_id=client_id,
+                                group_id=group_id,
+                                client_info={
+                                    'has_gpu': capabilities.get('has_gpu', False),
+                                    'device': capabilities.get('device', 'cpu'),
+                                    'data_metadata': data_metadata,
+                                    'connection': 'websocket'
+                                }
+                            )
+                            if success:
+                                group = fl_server.group_manager.groups[group_id]
+                                logger.info(f"[REGISTER] Client {client_id} registered. Group now has {len(group.clients)} clients: {list(group.clients.keys())}")
+                                # Register websocket for sending messages to client
+                                fl_server.connection_manager.register_client(client_id, websocket)
+                                await websocket.send_json({
+                                    'status': 'registered',
+                                    'client_id': client_id,
+                                    'group_id': group_id,
+                                    'model_id': group.model_id
+                                })
+                            else:
+                                await websocket.send_json({
+                                    'status': 'rejected',
+                                    'reason': 'registration_failed'
+                                })
+                        except Exception as e:
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Registration error: {e}")
+                            await websocket.send_json({
+                                'status': 'rejected',
+                                'reason': f'registration_error: {str(e)}'
+                            })
             
             elif message.get('type') == 'update':
                 # Check if group is training
