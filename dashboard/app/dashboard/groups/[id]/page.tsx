@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthContext';
 import {
   Layers, ArrowLeft, Play, Pause, Square, Clock, Users,
-  Shield, Activity, Zap, TrendingUp, ScrollText, RefreshCw
+  Shield, Activity, Zap, TrendingUp, ScrollText, RefreshCw,
+  Download, Box
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -31,6 +32,7 @@ interface Group {
   client_count: number;
   model_version: number;
   metrics_history: GroupMetrics[];
+  completed_rounds: number;
 }
 
 interface Client {
@@ -216,13 +218,13 @@ export default function GroupDetailPage() {
       </div>
 
       <div className="flex gap-2 border-b border-gray-800">
-        {['overview', 'participants', 'logs', 'privacy'].map((tab) => (
+        {['overview', 'participants', 'models', 'logs', 'privacy'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-3 text-sm font-medium capitalize transition border-b-2 ${activeTab === tab
-                ? 'border-indigo-500 text-indigo-400'
-                : 'border-transparent text-gray-400 hover:text-white'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-gray-400 hover:text-white'
               }`}
           >
             {tab}
@@ -526,6 +528,121 @@ export default function GroupDetailPage() {
                 <span className="text-white">{group.config.lr}</span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'models' && (
+        <div className="space-y-6">
+          {/* Current Model Info */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Box size={20} className="text-indigo-400" />
+                <h3 className="text-lg font-semibold text-white">Global Model</h3>
+              </div>
+              <button
+                onClick={() => window.open(`${API_URL}/api/models/${group.group_id}/download`, '_blank')}
+                disabled={group.model_version === 0}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-white text-sm font-medium transition flex items-center gap-2"
+              >
+                <Download size={16} />
+                Download Latest (v{group.model_version})
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-4 bg-gray-950 rounded-lg">
+                <p className="text-gray-400 text-sm">Model</p>
+                <p className="text-white font-medium mt-1">{group.model_id}</p>
+              </div>
+              <div className="p-4 bg-gray-950 rounded-lg">
+                <p className="text-gray-400 text-sm">Current Version</p>
+                <p className="text-white font-medium mt-1">v{group.model_version}</p>
+              </div>
+              <div className="p-4 bg-gray-950 rounded-lg">
+                <p className="text-gray-400 text-sm">Completed Rounds</p>
+                <p className="text-white font-medium mt-1">{group.completed_rounds || 0}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Accuracy/Loss Chart */}
+          {group.metrics_history && group.metrics_history.length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-4">Training Progress</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={group.metrics_history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis
+                      dataKey="version"
+                      stroke="#6b7280"
+                      label={{ value: 'Round', position: 'insideBottomRight', offset: -5, fill: '#6b7280' }}
+                    />
+                    <YAxis stroke="#6b7280" />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                      labelFormatter={(v) => `Round ${v}`}
+                    />
+                    <Area type="monotone" dataKey="accuracy" stroke="#818cf8" fill="#818cf844" name="Accuracy" />
+                    <Area type="monotone" dataKey="loss" stroke="#f87171" fill="#f8717144" name="Loss" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Version History Table */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-white mb-4">Version History</h3>
+            {group.metrics_history && group.metrics_history.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800">
+                      <th className="text-left text-gray-400 py-3 px-4 font-medium">Version</th>
+                      <th className="text-left text-gray-400 py-3 px-4 font-medium">Accuracy</th>
+                      <th className="text-left text-gray-400 py-3 px-4 font-medium">Loss</th>
+                      <th className="text-left text-gray-400 py-3 px-4 font-medium">Clients</th>
+                      <th className="text-left text-gray-400 py-3 px-4 font-medium">Timestamp</th>
+                      <th className="text-right text-gray-400 py-3 px-4 font-medium">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...group.metrics_history].reverse().map((metric: GroupMetrics, i: number) => (
+                      <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+                        <td className="py-3 px-4 text-white font-medium">v{metric.version}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-indigo-400 font-mono">
+                            {formatAccuracyPercent(metric.accuracy)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-red-400 font-mono">
+                            {typeof metric.loss === 'number' ? metric.loss.toFixed(4) : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-gray-300">{metric.clients || '—'}</td>
+                        <td className="py-3 px-4 text-gray-400 text-xs">
+                          {metric.timestamp ? new Date(metric.timestamp * 1000).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => window.open(`${API_URL}/api/models/${group.group_id}/download?version=${metric.version}`, '_blank')}
+                            className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-indigo-400"
+                            title={`Download v${metric.version}`}
+                          >
+                            <Download size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-8">No training rounds completed yet</p>
+            )}
           </div>
         </div>
       )}

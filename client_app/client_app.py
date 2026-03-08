@@ -22,8 +22,10 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -504,6 +506,39 @@ class FederatedClient:
         
         self.logger.info(f"Local client initialized with {len(train_data)} samples")
     
+    def _save_local_model(self):
+        """Save the local model to disk after training."""
+        if not self.local_client or not self.local_client.model:
+            return
+        try:
+            import torch
+            group_id = getattr(self, 'group_id', 'default')
+            save_dir = os.path.join('models', 'client', self.client_id)
+            os.makedirs(save_dir, exist_ok=True)
+            
+            file_path = os.path.join(save_dir, f'model_v{self.current_global_version}.pt')
+            torch.save({
+                'version': self.current_global_version,
+                'state_dict': self.local_client.model.state_dict(),
+                'client_id': self.client_id,
+                'group_id': group_id,
+                'timestamp': datetime.now().isoformat(),
+            }, file_path)
+            
+            # Also save as latest
+            latest_path = os.path.join(save_dir, 'model_latest.pt')
+            torch.save({
+                'version': self.current_global_version,
+                'state_dict': self.local_client.model.state_dict(),
+                'client_id': self.client_id,
+                'group_id': group_id,
+                'timestamp': datetime.now().isoformat(),
+            }, latest_path)
+            
+            self.logger.info(f"Local model saved → {file_path}")
+        except Exception as e:
+            self.logger.warning(f"Could not save local model: {e}")
+    
     async def run(self):
         """Main client: connect → train once → send update → exit."""
         # Connect to server
@@ -530,6 +565,9 @@ class FederatedClient:
             self.logger.info("No final server response within timeout")
         except Exception:
             pass
+
+        # Save local model to disk
+        self._save_local_model()
 
         # Disconnect cleanly
         await self.disconnect()

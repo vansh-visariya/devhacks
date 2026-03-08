@@ -304,6 +304,20 @@ class GroupManager:
                     except Exception as e:
                         self.logger.warning(f"Could not load metrics for group {gid}: {e}")
                     
+                    # Checkpoint resume: check if model file exists on disk
+                    try:
+                        latest_path = os.path.join('models', 'global', gid, 'model_latest.pt')
+                        if os.path.exists(latest_path):
+                            import torch
+                            checkpoint = torch.load(latest_path, map_location='cpu', weights_only=False)
+                            disk_version = checkpoint.get('version', 0)
+                            if disk_version > group.model_version:
+                                group.model_version = disk_version
+                                group.completed_rounds = disk_version
+                            self.logger.info(f"Checkpoint found for {gid}: v{disk_version} (acc={checkpoint.get('accuracy', 0):.4f})")
+                    except Exception as e:
+                        self.logger.warning(f"Could not load checkpoint for group {gid}: {e}")
+                    
                     self.logger.info(f"Restored group from DB: {gid} (status={group.status}, clients={len(group.clients)}, rounds={group.completed_rounds})")
                 
                 self.logger.info(f"Loaded {len(db_groups)} groups from database")
@@ -1505,6 +1519,73 @@ async def validate_model(model_id: str):
     """Validate model compatibility."""
     is_valid, message = fl_server.model_registry.validate_model(model_id)
     return {"model_id": model_id, "is_valid": is_valid, "message": message}
+
+
+@app.get("/api/models/{group_id}/download")
+async def download_model(group_id: str, version: int = None):
+    """Download the global model weights for a group.
+    
+    If version is specified, downloads that version. Otherwise downloads latest.
+    Returns the .pt file as a binary download.
+    """
+    from fastapi.responses import FileResponse
+    
+    if group_id not in fl_server.group_manager.groups:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    save_dir = os.path.join('models', 'global', group_id)
+    
+    if version:
+        file_path = os.path.join(save_dir, f'model_v{version}.pt')
+    else:
+        file_path = os.path.join(save_dir, 'model_latest.pt')
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Model file not found. No training has been completed yet.")
+    
+    filename = f"{group_id}_model_v{version}.pt" if version else f"{group_id}_model_latest.pt"
+    return FileResponse(
+        file_path,
+        media_type="application/octet-stream",
+        filename=filename
+    )
+
+
+@app.get("/api/models/{group_id}/history")
+async def get_model_history(group_id: str):
+    """Get the full training history for a group.
+    
+    Returns model versions with accuracy, loss, timestamp, and number of
+    contributing clients per round. Also returns the in-memory metrics.
+    """
+    if group_id not in fl_server.group_manager.groups:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    group = fl_server.group_manager.groups[group_id]
+    
+    # Get DB model records
+    db = get_db()
+    db_history = db.get_model_history(group_id, model_type='global')
+    
+    # Get in-memory metrics
+    metrics = group.metrics_history
+    
+    # Check which model files exist on disk
+    save_dir = os.path.join('models', 'global', group_id)
+    available_files = []
+    if os.path.exists(save_dir):
+        available_files = [f for f in os.listdir(save_dir) if f.endswith('.pt')]
+    
+    return {
+        "group_id": group_id,
+        "model_id": group.model_id,
+        "current_version": group.model_version,
+        "completed_rounds": group.completed_rounds,
+        "history": db_history,
+        "metrics": metrics,
+        "available_files": available_files,
+        "has_latest": os.path.exists(os.path.join(save_dir, 'model_latest.pt')) if os.path.exists(save_dir) else False,
+    }
 
 
 @app.get("/api/groups")
